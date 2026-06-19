@@ -216,7 +216,10 @@ dispatch_reinstall() {
   print_line
 
   case "$TARGET_OS:$TARGET_VER" in
-    debian:10|debian:11|debian:12|debian:13|ubuntu:20.04|ubuntu:22.04|ubuntu:24.04)
+    debian:10)
+      cmd=(bash "$REINSTALL_ENTRY" "$TARGET_OS" "$TARGET_VER" --ci --password "$DEFAULT_PASSWORD")
+      ;;
+    debian:11|debian:12|debian:13|ubuntu:20.04|ubuntu:22.04|ubuntu:24.04)
       cmd=(bash "$REINSTALL_ENTRY" "$TARGET_OS" "$TARGET_VER" --password "$DEFAULT_PASSWORD")
       ;;
     windows:2022)
