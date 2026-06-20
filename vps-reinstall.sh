@@ -10,6 +10,7 @@ REPO_REF="${VPS_REINSTALL_REPO_REF:-vps-reinstall}"
 RAW_BASE_URL="${VPS_REINSTALL_RAW_BASE_URL:-https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REPO_REF}"
 REINSTALL_ENTRY="${VPS_REINSTALL_ENTRY:-$SCRIPT_DIR/vps-reinstall/reinstall.sh}"
 DEFAULT_PASSWORD="${VPS_REINSTALL_DEFAULT_PASSWORD:-Dx@Debian.dx}"
+WINDOWS_USERNAME="${VPS_REINSTALL_WINDOWS_USERNAME:-Administrator}"
 WINDOWS_10_LTSC_2021_ISO="${VPS_REINSTALL_WINDOWS_10_LTSC_2021_ISO:-https://dlink.host/1drv/aHR0cHM6Ly8xZHJ2Lm1zL3UvYy8wYzMzNDNiZTA3ZWJmNTA4L0lRQjRQWklJbXlJaVNMdHdEbzJhbnRnbUFiQzJLdkJzUThFZjlUVER4aEx4dXFJ.iso}"
 
 KERNEL_INFO=""
@@ -22,6 +23,8 @@ FINDMNT_SUMMARY=""
 TARGET_OS=""
 TARGET_VER=""
 TARGET_LABEL=""
+TARGET_AUTO_REBOOT="0"
+TARGET_LOG_TO_REINSTALL="0"
 BOOTSTRAP_DIR=""
 
 print_line() {
@@ -57,7 +60,7 @@ fetch_file() {
     return
   fi
 
-  warn "neither curl nor wget is available"
+  warn "未找到 curl 或 wget，无法下载所需文件"
   exit 1
 }
 
@@ -119,7 +122,7 @@ resolve_root_disk() {
 
 build_lsblk_summary() {
   if ! command_exists lsblk; then
-    printf 'lsblk not available'
+    printf 'lsblk 不可用'
     return
   fi
 
@@ -135,7 +138,7 @@ build_lsblk_summary() {
 
 build_findmnt_summary() {
   if ! command_exists findmnt; then
-    printf 'findmnt not available'
+    printf 'findmnt 不可用'
     return
   fi
 
@@ -195,6 +198,9 @@ EOF
 select_target() {
   local choice=""
 
+  TARGET_AUTO_REBOOT="0"
+  TARGET_LOG_TO_REINSTALL="0"
+
   while true; do
     read -r choice
     choice="$(trim "$choice")"
@@ -207,13 +213,13 @@ select_target() {
       5) TARGET_OS="ubuntu"; TARGET_VER="22.04"; TARGET_LABEL="Ubuntu 22.04"; break ;;
       6) TARGET_OS="ubuntu"; TARGET_VER="24.04"; TARGET_LABEL="Ubuntu 24.04"; break ;;
       7) TARGET_OS="windows"; TARGET_VER="2022"; TARGET_LABEL="Windows Server 2022"; break ;;
-      8) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; break ;;
+      8) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
       9)
-        print_line "Exit"
+        print_line "退出"
         exit 0
         ;;
       *)
-        warn "invalid selection: ${choice:-<empty>}"
+        warn "无效选择：${choice:-<空>}"
         ;;
     esac
   done
@@ -230,23 +236,52 @@ ensure_reinstall_entry() {
   BOOTSTRAP_DIR="$(mktemp -d /tmp/vps-reinstall.XXXXXX)"
   REINSTALL_ENTRY="$BOOTSTRAP_DIR/reinstall.sh"
 
-  warn "reinstall entry not found locally, bootstrapping from: $remote_entry_url"
+  warn "未在本地找到重装核心，正在从本仓库获取：$remote_entry_url"
   fetch_file "$remote_entry_url" "$REINSTALL_ENTRY"
   chmod 700 "$REINSTALL_ENTRY"
 
   if [ ! -s "$REINSTALL_ENTRY" ]; then
-    warn "failed to bootstrap reinstall entry: $remote_entry_url"
+    warn "获取重装核心失败：$remote_entry_url"
     exit 1
   fi
 }
 
+print_windows_10_ltsc_reboot_notice() {
+  cat <<'EOF'
+Windows 10 LTSC 2021 配置完成。
+
+系统即将重启进入安装环境。
+
+重启后可执行以下命令查看安装进度：
+
+tail -fn+1 /reinstall.log
+
+请勿关闭 VPS 电源或强制关机。
+EOF
+}
+
+maybe_reboot_after_dispatch() {
+  if [ "$TARGET_AUTO_REBOOT" != "1" ]; then
+    return
+  fi
+
+  if [ "$TARGET_LOG_TO_REINSTALL" = "1" ]; then
+    print_windows_10_ltsc_reboot_notice | tee -a /reinstall.log
+  else
+    print_windows_10_ltsc_reboot_notice
+  fi
+
+  reboot
+}
+
 dispatch_reinstall() {
   local -a cmd=()
+  local rc=0
 
   print_line
   print_line "[系统选择]"
-  print_line "- OS: $TARGET_OS"
-  print_line "- Version: $TARGET_VER"
+  print_line "- 系统: $TARGET_OS"
+  print_line "- 版本: $TARGET_VER"
   print_line
   print_line "[调用reinstall核心逻辑]"
   print_line
@@ -259,18 +294,33 @@ dispatch_reinstall() {
       cmd=(bash "$REINSTALL_ENTRY" "$TARGET_OS" "$TARGET_VER" --password "$DEFAULT_PASSWORD")
       ;;
     windows:2022)
-      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows Server 2022 SERVERDATACENTER" --password "$DEFAULT_PASSWORD")
+      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows Server 2022 SERVERDATACENTER" --username "$WINDOWS_USERNAME" --password "$DEFAULT_PASSWORD")
       ;;
     windows:10-ltsc-2021)
-      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows 10 Enterprise LTSC 2021" --iso "$WINDOWS_10_LTSC_2021_ISO" --password "$DEFAULT_PASSWORD")
+      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows 10 Enterprise LTSC 2021" --lang zh-cn --iso "$WINDOWS_10_LTSC_2021_ISO" --username "$WINDOWS_USERNAME" --password "$DEFAULT_PASSWORD")
       ;;
     *)
-      warn "unsupported selection mapping: $TARGET_OS $TARGET_VER"
+      warn "不支持的系统选择：$TARGET_OS $TARGET_VER"
       exit 1
       ;;
   esac
 
-  "${cmd[@]}"
+  set +e
+  if [ "$TARGET_LOG_TO_REINSTALL" = "1" ]; then
+    "${cmd[@]}" 2>&1 | tee -a /reinstall.log
+    rc="${PIPESTATUS[0]}"
+  else
+    "${cmd[@]}"
+    rc="$?"
+  fi
+  set -e
+
+  if [ "$rc" -ne 0 ]; then
+    warn "重装核心执行失败，已停止自动重启。退出码：$rc"
+    return "$rc"
+  fi
+
+  maybe_reboot_after_dispatch
 }
 
 main() {
