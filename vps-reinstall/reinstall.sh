@@ -104,6 +104,7 @@ Usage: $reinstall_____ anolis      7|8|23
 
        Options:        For Linux/Windows:
                        [--username    USERNAME]
+                       [--windows-username USERNAME]
                        [--password    PASSWORD]
                        [--ssh-key     KEY]
                        [--ssh-port    PORT]
@@ -3262,7 +3263,7 @@ build_extra_cmdline() {
     # https://salsa.debian.org/installer-team/rootskel/-/blob/master/src/lib/debian-installer-startup.d/S02module-params?ref_type=heads
     for key in confhome hold force_boot_mode force_cn force_old_windows_setup cloud_image main_disk \
         elts deb_mirror \
-        username ssh_port rdp_port web_port allow_ping; do
+        username windows_username ssh_port rdp_port web_port allow_ping; do
         value=${!key}
         if [ -n "$value" ]; then
             is_need_quote "$value" &&
@@ -4481,6 +4482,7 @@ for o in ci installer debug minimal allow-ping force-cn help \
     cloud-data: \
     lang: \
     user: username: \
+    windows-username: \
     passwd: password: \
     ssh-port: \
     ssh-key: public-key: \
@@ -4618,7 +4620,17 @@ while true; do
     --user | --username)
         [ -n "$2" ] || error_and_exit "Need value for $1"
         username="$(printf "%s" "$2" | trim)"
+        username_from_cli=1
         assert_username_valid
+        shift 2
+        ;;
+    --windows-username)
+        [ -n "$2" ] || error_and_exit "Need value for $1"
+        windows_username="$(printf "%s" "$2" | trim)"
+        username_save=$username
+        username="$windows_username"
+        assert_username_valid
+        username=$username_save
         shift 2
         ;;
     --passwd | --password)
@@ -4795,6 +4807,17 @@ done
 
 # 检查必须的参数
 verify_os_args
+
+if [ "$distro" = windows ]; then
+    if [ -z "$windows_username" ]; then
+        if [ -n "$username_from_cli" ] && [ -n "$username" ]; then
+            windows_username=$username
+        else
+            windows_username=Administrator
+        fi
+    fi
+    [ -n "$username" ] || username=root
+fi
 
 # 用户名
 if ! is_netboot_xyz && [ -z "$username" ]; then
@@ -5122,10 +5145,10 @@ elif [ "$distro" = windows ]; then
     echo "WEB Port: $web_port"
 
     info "After Install"
-    if is_administrator_username "$username"; then
-        echo "Username: $username (Depends on Windows iso's language)"
+    if is_administrator_username "${windows_username:-$username}"; then
+        echo "Username: ${windows_username:-$username}"
     else
-        echo "Username: $username"
+        echo "Username: ${windows_username:-$username}"
     fi
     echo "Password: $password"
     echo "RDP Port: $rdp_port"
