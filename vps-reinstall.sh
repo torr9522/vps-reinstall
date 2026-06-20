@@ -23,6 +23,7 @@ FINDMNT_SUMMARY=""
 TARGET_OS=""
 TARGET_VER=""
 TARGET_LABEL=""
+TARGET_AUTO_REBOOT="0"
 TARGET_LOG_TO_REINSTALL="0"
 BOOTSTRAP_DIR=""
 
@@ -197,6 +198,7 @@ EOF
 select_target() {
   local choice=""
 
+  TARGET_AUTO_REBOOT="0"
   TARGET_LOG_TO_REINSTALL="0"
 
   while true; do
@@ -211,7 +213,7 @@ select_target() {
       5) TARGET_OS="ubuntu"; TARGET_VER="22.04"; TARGET_LABEL="Ubuntu 22.04"; break ;;
       6) TARGET_OS="ubuntu"; TARGET_VER="24.04"; TARGET_LABEL="Ubuntu 24.04"; break ;;
       7) TARGET_OS="windows"; TARGET_VER="2022"; TARGET_LABEL="Windows Server 2022"; break ;;
-      8) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; TARGET_LOG_TO_REINSTALL="1"; break ;;
+      8) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
       9)
         print_line "退出"
         exit 0
@@ -259,7 +261,7 @@ EOF
 }
 
 maybe_reboot_after_dispatch() {
-  if [ "$TARGET_OS:$TARGET_VER" != "windows:10-ltsc-2021" ]; then
+  if [ "$TARGET_AUTO_REBOOT" != "1" ]; then
     return
   fi
 
@@ -274,6 +276,7 @@ maybe_reboot_after_dispatch() {
 
 dispatch_reinstall() {
   local -a cmd=()
+  local rc=0
 
   print_line
   print_line "[系统选择]"
@@ -302,10 +305,19 @@ dispatch_reinstall() {
       ;;
   esac
 
+  set +e
   if [ "$TARGET_LOG_TO_REINSTALL" = "1" ]; then
     "${cmd[@]}" 2>&1 | tee -a /reinstall.log
+    rc="${PIPESTATUS[0]}"
   else
     "${cmd[@]}"
+    rc="$?"
+  fi
+  set -e
+
+  if [ "$rc" -ne 0 ]; then
+    warn "重装核心执行失败，已停止自动重启。退出码：$rc"
+    return "$rc"
   fi
 
   maybe_reboot_after_dispatch
