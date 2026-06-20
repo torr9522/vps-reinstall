@@ -294,10 +294,10 @@ dispatch_reinstall() {
       cmd=(bash "$REINSTALL_ENTRY" "$TARGET_OS" "$TARGET_VER" --password "$DEFAULT_PASSWORD")
       ;;
     windows:2022)
-      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows Server 2022 SERVERDATACENTER" --username "$WINDOWS_USERNAME" --password "$DEFAULT_PASSWORD")
+      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows Server 2022 SERVERDATACENTER" --password "$DEFAULT_PASSWORD")
       ;;
     windows:10-ltsc-2021)
-      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows 10 Enterprise LTSC 2021" --lang zh-cn --iso "$WINDOWS_10_LTSC_2021_ISO" --username "$WINDOWS_USERNAME" --password "$DEFAULT_PASSWORD")
+      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows 10 Enterprise LTSC 2021" --lang zh-cn --iso "$WINDOWS_10_LTSC_2021_ISO" --windows-username "$WINDOWS_USERNAME" --password "$DEFAULT_PASSWORD")
       ;;
     *)
       warn "不支持的系统选择：$TARGET_OS $TARGET_VER"

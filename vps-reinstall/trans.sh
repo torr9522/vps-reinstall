@@ -530,7 +530,8 @@ extract_env_from_cmdline() {
 
     # 如果空白则设置默认值
     if [ "$distro" = windows ]; then
-        username=${username:-administrator}
+        username=${username:-root}
+        windows_username=${windows_username:-Administrator}
     else
         username=${username:-root}
     fi
@@ -3442,19 +3443,19 @@ modify_windows() {
     # 5. 设置用户密码永不过期（仅限 iso 安装）
     #    Azure 的 Windows 实例，初始用户的密码也是永不过期的
     #    管理员账号默认不会过期
-    if [ "$distro" = "windows" ] && ! is_administrator_username "$username"; then
+    if [ "$distro" = "windows" ] && ! is_administrator_username "$windows_username"; then
         # 两种方法都可以，但语法很神奇
 
         # 第二行前面不能有空格
         cat <<EOF >$os_dir/windows-set-user-password-never-expires.bat
-wmic useraccount where name="$username" set passwordexpires=false || ^
-powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-LocalUser -Name '$username' -PasswordNeverExpires \$true"
+wmic useraccount where name="$windows_username" set passwordexpires=false || ^
+powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-LocalUser -Name '$windows_username' -PasswordNeverExpires \$true"
 del "%~f0"
 EOF
         # 第二行 || 前面必须有空格
         cat <<EOF >$os_dir/windows-set-user-password-never-expires.bat
-wmic useraccount where name="$username" set passwordexpires=false ^
-  || powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-LocalUser -Name '$username' -PasswordNeverExpires \$true"
+wmic useraccount where name="$windows_username" set passwordexpires=false ^
+  || powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-LocalUser -Name '$windows_username' -PasswordNeverExpires \$true"
 del "%~f0"
 EOF
         unix2dos $os_dir/windows-set-user-password-never-expires.bat
@@ -7788,7 +7789,7 @@ EOF
         /tmp/autounattend.xml
 
     # 账号密码
-    if is_administrator_username "$username"; then
+    if is_administrator_username "$windows_username"; then
         # Administrator
         password_base64=$(get_password_windows_administrator_base64)
         xmlstarlet ed -L -N x="urn:schemas-microsoft-com:unattend" \
@@ -7806,7 +7807,7 @@ EOF
             /tmp/autounattend.xml
         sed -i \
             -e "s|%enable_administrator%|0|gi" \
-            -e "s|%user_username%|$username|gi" \
+            -e "s|%user_username%|$windows_username|gi" \
             -e "s|%user_password%|$password_base64|gi" \
             /tmp/autounattend.xml
     fi
