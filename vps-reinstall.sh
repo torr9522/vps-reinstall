@@ -10,6 +10,7 @@ REPO_REF="${VPS_REINSTALL_REPO_REF:-vps-reinstall}"
 RAW_BASE_URL="${VPS_REINSTALL_RAW_BASE_URL:-https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REPO_REF}"
 REINSTALL_ENTRY="${VPS_REINSTALL_ENTRY:-$SCRIPT_DIR/vps-reinstall/reinstall.sh}"
 DEFAULT_PASSWORD="${VPS_REINSTALL_DEFAULT_PASSWORD:-Dx@Debian.dx}"
+WINDOWS_10_LTSC_2021_ISO="${VPS_REINSTALL_WINDOWS_10_LTSC_2021_ISO:-https://dlink.host/1drv/aHR0cHM6Ly8xZHJ2Lm1zL3UvYy8wYzMzNDNiZTA3ZWJmNTA4L0lRQjRQWklJbXlJaVNMdHdEbzJhbnRnbUFiQzJLdkJzUThFZjlUVER4aEx4dXFJ.iso}"
 
 KERNEL_INFO=""
 ARCH_INFO=""
@@ -261,7 +262,7 @@ dispatch_reinstall() {
       cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows Server 2022 SERVERDATACENTER" --password "$DEFAULT_PASSWORD")
       ;;
     windows:10-ltsc-2021)
-      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows 10 Enterprise LTSC 2021" --password "$DEFAULT_PASSWORD")
+      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows 10 Enterprise LTSC 2021" --iso "$WINDOWS_10_LTSC_2021_ISO" --password "$DEFAULT_PASSWORD")
       ;;
     *)
       warn "unsupported selection mapping: $TARGET_OS $TARGET_VER"
