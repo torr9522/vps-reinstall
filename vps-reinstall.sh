@@ -22,6 +22,7 @@ FINDMNT_SUMMARY=""
 TARGET_OS=""
 TARGET_VER=""
 TARGET_LABEL=""
+TARGET_LOG_TO_REINSTALL="0"
 BOOTSTRAP_DIR=""
 
 print_line() {
@@ -195,6 +196,8 @@ EOF
 select_target() {
   local choice=""
 
+  TARGET_LOG_TO_REINSTALL="0"
+
   while true; do
     read -r choice
     choice="$(trim "$choice")"
@@ -207,7 +210,7 @@ select_target() {
       5) TARGET_OS="ubuntu"; TARGET_VER="22.04"; TARGET_LABEL="Ubuntu 22.04"; break ;;
       6) TARGET_OS="ubuntu"; TARGET_VER="24.04"; TARGET_LABEL="Ubuntu 24.04"; break ;;
       7) TARGET_OS="windows"; TARGET_VER="2022"; TARGET_LABEL="Windows Server 2022"; break ;;
-      8) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; break ;;
+      8) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; TARGET_LOG_TO_REINSTALL="1"; break ;;
       9)
         print_line "Exit"
         exit 0
@@ -262,7 +265,7 @@ dispatch_reinstall() {
       cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows Server 2022 SERVERDATACENTER" --password "$DEFAULT_PASSWORD")
       ;;
     windows:10-ltsc-2021)
-      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows 10 Enterprise LTSC 2021" --iso "$WINDOWS_10_LTSC_2021_ISO" --password "$DEFAULT_PASSWORD")
+      cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows 10 Enterprise LTSC 2021" --lang zh-cn --iso "$WINDOWS_10_LTSC_2021_ISO" --password "$DEFAULT_PASSWORD")
       ;;
     *)
       warn "unsupported selection mapping: $TARGET_OS $TARGET_VER"
@@ -270,7 +273,11 @@ dispatch_reinstall() {
       ;;
   esac
 
-  "${cmd[@]}"
+  if [ "$TARGET_LOG_TO_REINSTALL" = "1" ]; then
+    "${cmd[@]}" 2>&1 | tee -a /reinstall.log
+  else
+    "${cmd[@]}"
+  fi
 }
 
 main() {
