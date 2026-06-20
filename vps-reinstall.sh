@@ -4,6 +4,10 @@ set -euo pipefail
 
 SCRIPT_NAME="vps-reinstall.sh"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_OWNER="${VPS_REINSTALL_REPO_OWNER:-torr9522}"
+REPO_NAME="${VPS_REINSTALL_REPO_NAME:-vps-reinstall}"
+REPO_REF="${VPS_REINSTALL_REPO_REF:-vps-reinstall}"
+RAW_BASE_URL="${VPS_REINSTALL_RAW_BASE_URL:-https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REPO_REF}"
 REINSTALL_ENTRY="${VPS_REINSTALL_ENTRY:-$SCRIPT_DIR/vps-reinstall/reinstall.sh}"
 DEFAULT_PASSWORD="${VPS_REINSTALL_DEFAULT_PASSWORD:-Dx@Debian.dx}"
 
@@ -17,6 +21,7 @@ FINDMNT_SUMMARY=""
 TARGET_OS=""
 TARGET_VER=""
 TARGET_LABEL=""
+BOOTSTRAP_DIR=""
 
 print_line() {
   printf '%s\n' "${1:-}"
@@ -35,6 +40,24 @@ trim() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+fetch_file() {
+  local url="$1"
+  local output="$2"
+
+  if command_exists curl; then
+    curl -fsSL "$url" -o "$output"
+    return
+  fi
+
+  if command_exists wget; then
+    wget -qO "$output" "$url"
+    return
+  fi
+
+  warn "neither curl nor wget is available"
+  exit 1
 }
 
 safe_uname() {
@@ -148,23 +171,22 @@ show_menu() {
 
 ------------------------
 
-1) Debian 10
-2) Debian 11
-3) Debian 12
-4) Debian 13
+1) Debian 11
+2) Debian 12
+3) Debian 13
 
-5) Ubuntu 20.04
-6) Ubuntu 22.04
-7) Ubuntu 24.04
+4) Ubuntu 20.04
+5) Ubuntu 22.04
+6) Ubuntu 24.04
 
-8) Windows Server 2022
-9) Windows 10 LTSC 2021
+7) Windows Server 2022
+8) Windows 10 LTSC 2021
 
-10) 退出
+9) 退出
 
 ------------------------
 
-请选择系统 [1-10]:
+请选择系统 [1-9]:
 EOF
   print_line
 }
@@ -177,16 +199,15 @@ select_target() {
     choice="$(trim "$choice")"
 
     case "$choice" in
-      1) TARGET_OS="debian"; TARGET_VER="10"; TARGET_LABEL="Debian 10"; break ;;
-      2) TARGET_OS="debian"; TARGET_VER="11"; TARGET_LABEL="Debian 11"; break ;;
-      3) TARGET_OS="debian"; TARGET_VER="12"; TARGET_LABEL="Debian 12"; break ;;
-      4) TARGET_OS="debian"; TARGET_VER="13"; TARGET_LABEL="Debian 13"; break ;;
-      5) TARGET_OS="ubuntu"; TARGET_VER="20.04"; TARGET_LABEL="Ubuntu 20.04"; break ;;
-      6) TARGET_OS="ubuntu"; TARGET_VER="22.04"; TARGET_LABEL="Ubuntu 22.04"; break ;;
-      7) TARGET_OS="ubuntu"; TARGET_VER="24.04"; TARGET_LABEL="Ubuntu 24.04"; break ;;
-      8) TARGET_OS="windows"; TARGET_VER="2022"; TARGET_LABEL="Windows Server 2022"; break ;;
-      9) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; break ;;
-      10)
+      1) TARGET_OS="debian"; TARGET_VER="11"; TARGET_LABEL="Debian 11"; break ;;
+      2) TARGET_OS="debian"; TARGET_VER="12"; TARGET_LABEL="Debian 12"; break ;;
+      3) TARGET_OS="debian"; TARGET_VER="13"; TARGET_LABEL="Debian 13"; break ;;
+      4) TARGET_OS="ubuntu"; TARGET_VER="20.04"; TARGET_LABEL="Ubuntu 20.04"; break ;;
+      5) TARGET_OS="ubuntu"; TARGET_VER="22.04"; TARGET_LABEL="Ubuntu 22.04"; break ;;
+      6) TARGET_OS="ubuntu"; TARGET_VER="24.04"; TARGET_LABEL="Ubuntu 24.04"; break ;;
+      7) TARGET_OS="windows"; TARGET_VER="2022"; TARGET_LABEL="Windows Server 2022"; break ;;
+      8) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; break ;;
+      9)
         print_line "Exit"
         exit 0
         ;;
@@ -198,8 +219,22 @@ select_target() {
 }
 
 ensure_reinstall_entry() {
-  if [ ! -f "$REINSTALL_ENTRY" ]; then
-    warn "reinstall entry not found: $REINSTALL_ENTRY"
+  local remote_entry_url=""
+
+  if [ -f "$REINSTALL_ENTRY" ]; then
+    return
+  fi
+
+  remote_entry_url="$RAW_BASE_URL/vps-reinstall/reinstall.sh"
+  BOOTSTRAP_DIR="$(mktemp -d /tmp/vps-reinstall.XXXXXX)"
+  REINSTALL_ENTRY="$BOOTSTRAP_DIR/reinstall.sh"
+
+  warn "reinstall entry not found locally, bootstrapping from: $remote_entry_url"
+  fetch_file "$remote_entry_url" "$REINSTALL_ENTRY"
+  chmod 700 "$REINSTALL_ENTRY"
+
+  if [ ! -s "$REINSTALL_ENTRY" ]; then
+    warn "failed to bootstrap reinstall entry: $remote_entry_url"
     exit 1
   fi
 }
