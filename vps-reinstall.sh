@@ -10,6 +10,7 @@ REPO_REF="${VPS_REINSTALL_REPO_REF:-vps-reinstall}"
 RAW_BASE_URL="${VPS_REINSTALL_RAW_BASE_URL:-https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REPO_REF}"
 REINSTALL_ENTRY="${VPS_REINSTALL_ENTRY:-$SCRIPT_DIR/vps-reinstall/reinstall.sh}"
 DEFAULT_PASSWORD="${VPS_REINSTALL_DEFAULT_PASSWORD:-Dx@Debian.dx}"
+LINUX_USERNAME="${VPS_REINSTALL_LINUX_USERNAME:-root}"
 WINDOWS_USERNAME="${VPS_REINSTALL_WINDOWS_USERNAME:-Administrator}"
 WINDOWS_10_LTSC_2021_ISO="${VPS_REINSTALL_WINDOWS_10_LTSC_2021_ISO:-https://dlink.host/1drv/aHR0cHM6Ly8xZHJ2Lm1zL3UvYy8wYzMzNDNiZTA3ZWJmNTA4L0lRQjRQWklJbXlJaVNMdHdEbzJhbnRnbUFiQzJLdkJzUThFZjlUVER4aEx4dXFJ.iso}"
 
@@ -206,13 +207,13 @@ select_target() {
     choice="$(trim "$choice")"
 
     case "$choice" in
-      1) TARGET_OS="debian"; TARGET_VER="11"; TARGET_LABEL="Debian 11"; break ;;
-      2) TARGET_OS="debian"; TARGET_VER="12"; TARGET_LABEL="Debian 12"; break ;;
-      3) TARGET_OS="debian"; TARGET_VER="13"; TARGET_LABEL="Debian 13"; break ;;
-      4) TARGET_OS="ubuntu"; TARGET_VER="20.04"; TARGET_LABEL="Ubuntu 20.04"; break ;;
-      5) TARGET_OS="ubuntu"; TARGET_VER="22.04"; TARGET_LABEL="Ubuntu 22.04"; break ;;
-      6) TARGET_OS="ubuntu"; TARGET_VER="24.04"; TARGET_LABEL="Ubuntu 24.04"; break ;;
-      7) TARGET_OS="windows"; TARGET_VER="2022"; TARGET_LABEL="Windows Server 2022"; break ;;
+      1) TARGET_OS="debian"; TARGET_VER="11"; TARGET_LABEL="Debian 11"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
+      2) TARGET_OS="debian"; TARGET_VER="12"; TARGET_LABEL="Debian 12"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
+      3) TARGET_OS="debian"; TARGET_VER="13"; TARGET_LABEL="Debian 13"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
+      4) TARGET_OS="ubuntu"; TARGET_VER="20.04"; TARGET_LABEL="Ubuntu 20.04"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
+      5) TARGET_OS="ubuntu"; TARGET_VER="22.04"; TARGET_LABEL="Ubuntu 22.04"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
+      6) TARGET_OS="ubuntu"; TARGET_VER="24.04"; TARGET_LABEL="Ubuntu 24.04"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
+      7) TARGET_OS="windows"; TARGET_VER="2022"; TARGET_LABEL="Windows Server 2022"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
       8) TARGET_OS="windows"; TARGET_VER="10-ltsc-2021"; TARGET_LABEL="Windows 10 LTSC 2021"; TARGET_AUTO_REBOOT="1"; TARGET_LOG_TO_REINSTALL="1"; break ;;
       9)
         print_line "退出"
@@ -246,17 +247,17 @@ ensure_reinstall_entry() {
   fi
 }
 
-print_windows_10_ltsc_reboot_notice() {
+print_reboot_notice() {
   cat <<'EOF'
-Windows 10 LTSC 2021 配置完成。
+重装配置已完成。
 
-系统即将重启进入安装环境。
+系统即将自动重启进入安装环境。
 
-重启后可执行以下命令查看安装进度：
+安装过程中请勿关闭 VPS 电源。
+
+查看安装进度：
 
 tail -fn+1 /reinstall.log
-
-请勿关闭 VPS 电源或强制关机。
 EOF
 }
 
@@ -266,9 +267,9 @@ maybe_reboot_after_dispatch() {
   fi
 
   if [ "$TARGET_LOG_TO_REINSTALL" = "1" ]; then
-    print_windows_10_ltsc_reboot_notice | tee -a /reinstall.log
+    print_reboot_notice | tee -a /reinstall.log
   else
-    print_windows_10_ltsc_reboot_notice
+    print_reboot_notice
   fi
 
   reboot
@@ -288,10 +289,10 @@ dispatch_reinstall() {
 
   case "$TARGET_OS:$TARGET_VER" in
     debian:10)
-      cmd=(bash "$REINSTALL_ENTRY" "$TARGET_OS" "$TARGET_VER" --ci --password "$DEFAULT_PASSWORD")
+      cmd=(bash "$REINSTALL_ENTRY" "$TARGET_OS" "$TARGET_VER" --ci --username "$LINUX_USERNAME" --password "$DEFAULT_PASSWORD")
       ;;
     debian:11|debian:12|debian:13|ubuntu:20.04|ubuntu:22.04|ubuntu:24.04)
-      cmd=(bash "$REINSTALL_ENTRY" "$TARGET_OS" "$TARGET_VER" --password "$DEFAULT_PASSWORD")
+      cmd=(bash "$REINSTALL_ENTRY" "$TARGET_OS" "$TARGET_VER" --username "$LINUX_USERNAME" --password "$DEFAULT_PASSWORD")
       ;;
     windows:2022)
       cmd=(bash "$REINSTALL_ENTRY" windows --image-name "Windows Server 2022 SERVERDATACENTER" --password "$DEFAULT_PASSWORD")
