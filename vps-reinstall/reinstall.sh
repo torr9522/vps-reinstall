@@ -6,7 +6,7 @@
 # alpine 默认没有 bash，因此 shebang 用 sh，再 exec 切换到 bash
 
 set -eE
-confhome=https://raw.githubusercontent.com/torr9522/vps-reinstall/vps-reinstall/vps-reinstall
+confhome=https://raw.githubusercontent.com/torr9522/vps-reinstall/special-network/vps-reinstall
 confhome_cn=
 # confhome_cn intentionally disabled in this vendored branch.
 
