@@ -1238,6 +1238,13 @@ EOF
             cat <<EOF >>$conf_file
 iface $ethx inet static
     address $ipv4_addr
+EOF
+            if [ "${ipv4_addr#*/}" = 32 ]; then
+                cat <<EOF >>$conf_file
+    pointopoint $ipv4_gateway
+EOF
+            fi
+            cat <<EOF >>$conf_file
     gateway $ipv4_gateway
 EOF
             # dns
