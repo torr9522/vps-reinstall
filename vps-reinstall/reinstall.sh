@@ -3510,6 +3510,8 @@ ip -4 route add "$ipv4_gateway" dev "$ethx" 2>/dev/null || true
 ip -4 route add default via "$ipv4_gateway" dev "$ethx" onlink 2>/dev/null ||
     ip -4 route add default via "$ipv4_gateway" dev "$ethx" 2>/dev/null ||
     true
+mkdir -p /run/early-netcfg-dmit
+echo 1 >"/run/early-netcfg-dmit/$ethx"
 
 debug_save_cmd after-ip-4-addr.txt ip -4 addr
 debug_save_cmd after-ip-4-route.txt ip -4 route

@@ -215,6 +215,10 @@ is_have_ipv4() {
     is_have_ipv4_addr && is_have_ipv4_gateway
 }
 
+is_early_netcfg_dmit() {
+    [ -s "/run/early-netcfg-dmit/$ethx" ]
+}
+
 is_have_ipv6() {
     is_have_ipv6_addr && is_have_ipv6_gateway
 }
@@ -513,6 +517,10 @@ is_have_ipv4_addr && dhcpv4=true || dhcpv4=false
 is_have_ipv6_addr && dhcpv6_or_slaac=true || dhcpv6_or_slaac=false
 is_have_ipv6_gateway && ra_has_gateway=true || ra_has_gateway=false
 
+if is_early_netcfg_dmit; then
+    should_disable_dhcpv4=true
+fi
+
 # 如果自动获取的 IP 不是重装前的，则改成静态，使用之前的 IP
 # 只比较 IP，不比较掩码/网关，因为
 # 1. 假设掩码/网关导致无法上网，后面也会检测到并改成静态
@@ -612,6 +620,7 @@ $dhcpv6_or_slaac && echo 1 >"$netconf/dhcpv6_or_slaac" || echo 0 >"$netconf/dhcp
 $should_disable_dhcpv4 && echo 1 >"$netconf/should_disable_dhcpv4" || echo 0 >"$netconf/should_disable_dhcpv4"
 $should_disable_accept_ra && echo 1 >"$netconf/should_disable_accept_ra" || echo 0 >"$netconf/should_disable_accept_ra"
 $should_disable_autoconf && echo 1 >"$netconf/should_disable_autoconf" || echo 0 >"$netconf/should_disable_autoconf"
+is_early_netcfg_dmit && echo 1 >"$netconf/early_netcfg_dmit" || echo 0 >"$netconf/early_netcfg_dmit"
 $is_in_china && echo 1 >"$netconf/is_in_china" || echo 0 >"$netconf/is_in_china"
 echo "$ethx" >"$netconf/ethx"
 echo "$mac_addr" >"$netconf/mac_addr"
