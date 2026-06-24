@@ -540,6 +540,167 @@ extract_env_from_cmdline() {
     web_port=${web_port:-80}
 }
 
+is_vps_reinstall_debug() {
+    [ -s /configs/vps-reinstall-debug ] || [ "${vps_reinstall_debug:-0}" = 1 ]
+}
+
+get_debug_root() {
+    echo /root/reinstall-debug
+}
+
+ensure_debug_root() {
+    mkdir -p "$(get_debug_root)"
+}
+
+debug_save_cmd() {
+    file=$1
+    shift
+    is_vps_reinstall_debug || return
+    ensure_debug_root
+    {
+        echo "+ $*"
+        "$@"
+    } >"$(get_debug_root)/$file" 2>&1 || true
+}
+
+debug_save_file() {
+    src=$1
+    dst=$2
+    is_vps_reinstall_debug || return
+    [ -e "$src" ] || return
+    ensure_debug_root
+    cp -f "$src" "$(get_debug_root)/$dst" 2>/dev/null || cat "$src" >"$(get_debug_root)/$dst" 2>/dev/null || true
+}
+
+debug_save_text_from_file() {
+    src=$1
+    dst=$2
+    is_vps_reinstall_debug || return
+    [ -e "$src" ] || return
+    ensure_debug_root
+    cat "$src" >"$(get_debug_root)/$dst" 2>/dev/null || true
+}
+
+debug_append_file_to_log() {
+    file=$1
+    title=$2
+    is_vps_reinstall_debug || return
+    [ -f "$file" ] || return
+    echo "$title"
+    cat "$file"
+    echo
+}
+
+debug_get_ipv4_pointopoint() {
+    if [ -n "$ipv4_addr" ] && [ "${ipv4_addr#*/}" = 32 ] && [ -n "$ipv4_gateway" ]; then
+        echo yes
+    else
+        echo no
+    fi
+}
+
+debug_get_ipv4_onlink() {
+    if [ -n "$ipv4_gateway" ] && [ -n "$ethx" ] && ip -4 route show default dev "$ethx" | grep -qw onlink; then
+        echo yes
+    elif [ -n "$ipv4_gateway" ] && [ -n "$ethx" ] && ip -4 route show "$ipv4_gateway" dev "$ethx" | grep -q .; then
+        echo yes
+    else
+        echo no
+    fi
+}
+
+collect_runtime_debug_snapshot() {
+    local label=$1
+    local pointopoint onlink
+
+    is_vps_reinstall_debug || return
+
+    ensure_debug_root
+    debug_save_cmd "$label-ip-4-addr.txt" ip -4 addr
+    debug_save_cmd "$label-ip-4-route.txt" ip -4 route
+    debug_save_cmd "$label-ip-6-addr.txt" ip -6 addr
+    debug_save_cmd "$label-ip-6-route.txt" ip -6 route
+    debug_save_cmd "$label-ip-link.txt" ip link
+    debug_save_cmd "$label-ip-neigh.txt" ip neigh
+    debug_save_cmd "$label-uname-a.txt" uname -a
+    debug_save_cmd "$label-resolv-conf.txt" cat /etc/resolv.conf
+    if command -v udevadm >/dev/null 2>&1; then
+        debug_save_cmd "$label-udevadm-info-e.txt" udevadm info -e
+    fi
+
+    pointopoint=$(debug_get_ipv4_pointopoint)
+    onlink=$(debug_get_ipv4_onlink)
+    cat >"$(get_debug_root)/$label-dmit-detect.txt" <<EOF
+[DMIT-DETECT]
+ipv4=${ipv4_addr:-}
+gateway=${ipv4_gateway:-}
+pointopoint=$pointopoint
+onlink=$onlink
+iface=${ethx:-}
+EOF
+
+    debug_append_file_to_log "$(get_debug_root)/$label-dmit-detect.txt" "[DEBUG] DMIT detect ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-ip-4-addr.txt" "[DEBUG] ip -4 addr ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-ip-4-route.txt" "[DEBUG] ip -4 route ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-ip-6-addr.txt" "[DEBUG] ip -6 addr ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-ip-6-route.txt" "[DEBUG] ip -6 route ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-ip-link.txt" "[DEBUG] ip link ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-ip-neigh.txt" "[DEBUG] ip neigh ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-resolv-conf.txt" "[DEBUG] /etc/resolv.conf ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-uname-a.txt" "[DEBUG] uname -a ($label)"
+    if [ -f "$(get_debug_root)/$label-udevadm-info-e.txt" ]; then
+        debug_append_file_to_log "$(get_debug_root)/$label-udevadm-info-e.txt" "[DEBUG] udevadm info -e ($label)"
+    fi
+}
+
+collect_installer_debug_logs() {
+    local label=$1
+
+    is_vps_reinstall_debug || return
+
+    debug_save_file /var/log/syslog "$label-var-log-syslog.log"
+    debug_save_file /var/log/installer/syslog "$label-var-log-installer-syslog.log"
+    debug_save_file /var/log/installer/status "$label-var-log-installer-status.log"
+
+    debug_append_file_to_log "$(get_debug_root)/$label-var-log-syslog.log" "[DEBUG] /var/log/syslog ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-var-log-installer-syslog.log" "[DEBUG] /var/log/installer/syslog ($label)"
+    debug_append_file_to_log "$(get_debug_root)/$label-var-log-installer-status.log" "[DEBUG] /var/log/installer/status ($label)"
+}
+
+collect_final_network_config_debug() {
+    is_vps_reinstall_debug || return
+
+    debug_save_text_from_file /etc/network/interfaces current-etc-network-interfaces.txt
+    if ls /etc/netplan/*.yaml >/dev/null 2>&1; then
+        for file in /etc/netplan/*.yaml; do
+            debug_save_text_from_file "$file" "current-$(basename "$file")"
+        done
+    fi
+
+    debug_save_text_from_file /os/etc/network/interfaces os-etc-network-interfaces.txt
+    if ls /os/etc/netplan/*.yaml >/dev/null 2>&1; then
+        for file in /os/etc/netplan/*.yaml; do
+            debug_save_text_from_file "$file" "os-$(basename "$file")"
+        done
+    fi
+
+    debug_save_text_from_file /target/etc/network/interfaces target-etc-network-interfaces.txt
+    if ls /target/etc/netplan/*.yaml >/dev/null 2>&1; then
+        for file in /target/etc/netplan/*.yaml; do
+            debug_save_text_from_file "$file" "target-$(basename "$file")"
+        done
+    fi
+
+    debug_append_file_to_log "$(get_debug_root)/current-etc-network-interfaces.txt" "[DEBUG] /etc/network/interfaces"
+    debug_append_file_to_log "$(get_debug_root)/os-etc-network-interfaces.txt" "[DEBUG] /os/etc/network/interfaces"
+    debug_append_file_to_log "$(get_debug_root)/target-etc-network-interfaces.txt" "[DEBUG] /target/etc/network/interfaces"
+
+    for file in "$(get_debug_root)"/current-*.yaml "$(get_debug_root)"/os-*.yaml "$(get_debug_root)"/target-*.yaml; do
+        [ -f "$file" ] || continue
+        debug_append_file_to_log "$file" "[DEBUG] $(basename "$file")"
+    done
+}
+
 ensure_service_started() {
     local service=$1
 
@@ -8358,6 +8519,10 @@ trans() {
         add_default_efi_to_nvram
     fi
 
+    collect_final_network_config_debug
+    collect_runtime_debug_snapshot final
+    collect_installer_debug_logs final
+
     info 'done'
     # 让 web 输出全部内容
     sleep 5
@@ -8458,13 +8623,16 @@ case 1 in
 1)
     # ChatGPT 说这种性能最高
     exec > >(exec tee $(get_ttys /dev/) /reinstall.log) 2>&1
+    collect_runtime_debug_snapshot initrd-start
     trans
     ;;
 2)
     exec > >(tee $(get_ttys /dev/) /reinstall.log) 2>&1
+    collect_runtime_debug_snapshot initrd-start
     trans
     ;;
 3)
+    collect_runtime_debug_snapshot initrd-start
     trans 2>&1 | tee $(get_ttys /dev/) /reinstall.log
     ;;
 esac

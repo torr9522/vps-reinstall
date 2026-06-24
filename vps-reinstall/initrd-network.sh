@@ -93,6 +93,80 @@ is_ipv4_pointopoint() {
     [ -n "$ipv4_addr" ] && [ -n "$ipv4_gateway" ] && [ "$(get_ipv4_prefix)" = 32 ]
 }
 
+is_vps_reinstall_debug() {
+    [ -s /configs/vps-reinstall-debug ]
+}
+
+get_debug_dir() {
+    echo /root/reinstall-debug/initrd-network
+}
+
+ensure_debug_dir() {
+    mkdir -p "$(get_debug_dir)"
+}
+
+debug_save_cmd() {
+    file=$1
+    shift
+    is_vps_reinstall_debug || return
+    ensure_debug_dir
+    {
+        echo "+ $*"
+        "$@"
+    } >"$(get_debug_dir)/$file" 2>&1 || true
+}
+
+debug_save_text() {
+    file=$1
+    shift
+    is_vps_reinstall_debug || return
+    ensure_debug_dir
+    printf '%s\n' "$@" >"$(get_debug_dir)/$file"
+}
+
+get_onlink_detect() {
+    if ip -4 route show default dev "$ethx" | grep -qw onlink; then
+        echo yes
+    elif [ -n "$ipv4_gateway" ] && ip -4 route show "$ipv4_gateway" dev "$ethx" | grep -q .; then
+        echo yes
+    else
+        echo no
+    fi
+}
+
+save_debug_snapshot() {
+    local label=$1
+    local pointopoint=no
+    local onlink=no
+
+    is_vps_reinstall_debug || return
+
+    ensure_debug_dir
+    debug_save_cmd "$label-ip-4-addr.txt" ip -4 addr
+    debug_save_cmd "$label-ip-4-route.txt" ip -4 route
+    debug_save_cmd "$label-ip-6-addr.txt" ip -6 addr
+    debug_save_cmd "$label-ip-6-route.txt" ip -6 route
+    debug_save_cmd "$label-ip-link.txt" ip link
+    debug_save_cmd "$label-ip-neigh.txt" ip neigh
+    debug_save_cmd "$label-uname-a.txt" uname -a
+    debug_save_cmd "$label-resolv-conf.txt" cat /etc/resolv.conf
+    if command -v udevadm >/dev/null 2>&1; then
+        debug_save_cmd "$label-udevadm-info-e.txt" udevadm info -e
+    fi
+
+    if is_ipv4_pointopoint; then
+        pointopoint=yes
+    fi
+    onlink=$(get_onlink_detect)
+    debug_save_text "$label-dmit-detect.txt" \
+        "[DMIT-DETECT]" \
+        "ipv4=${ipv4_addr:-}" \
+        "gateway=${ipv4_gateway:-}" \
+        "pointopoint=$pointopoint" \
+        "onlink=$onlink" \
+        "iface=${ethx:-}"
+}
+
 ensure_ipv4_gateway_route() {
     if [ -n "$ipv4_gateway" ]; then
         ip -4 route show "$ipv4_gateway" dev "$ethx" | grep -q . ||
@@ -328,6 +402,7 @@ if [ -z "$ethx" ]; then
 fi
 
 echo "Configuring $ethx ($mac_addr)..."
+save_debug_snapshot before-network
 
 # 不开启 lo 则 frp 无法连接 127.0.0.1 22
 ip link set dev lo up
@@ -546,3 +621,4 @@ echo "$ipv6_gateway" >"$netconf/ipv6_gateway"
 echo "$ipv6_extra_addrs" >"$netconf/ipv6_extra_addrs"
 $ipv4_has_internet && echo 1 >"$netconf/ipv4_has_internet" || echo 0 >"$netconf/ipv4_has_internet"
 $ipv6_has_internet && echo 1 >"$netconf/ipv6_has_internet" || echo 0 >"$netconf/ipv6_has_internet"
+save_debug_snapshot after-network
