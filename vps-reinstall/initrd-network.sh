@@ -421,6 +421,7 @@ if [ -f /usr/share/debconf/confmodule ]; then
         db_set netcfg/get_ipaddress "$(echo "$ipv4_addr" | remove_netmask)" || true
         db_set netcfg/get_netmask "255.255.255.255" || true
         db_set netcfg/get_gateway "none" || true
+        db_set netcfg/no_default_route true || true
         db_set netcfg/confirm_static true || true
     fi
 
