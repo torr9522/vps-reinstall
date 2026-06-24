@@ -161,6 +161,37 @@ error_and_exit() {
     exit 1
 }
 
+is_vps_reinstall_debug() {
+    [ "${VPS_REINSTALL_DEBUG:-0}" = 1 ] || [ "${vps_reinstall_debug:-0}" = 1 ]
+}
+
+show_dmit_detect() {
+    local pointopoint=no
+    local onlink=no
+
+    is_vps_reinstall_debug || return
+
+    if [ -n "$ipv4_addr" ] && [ "${ipv4_addr#*/}" = 32 ]; then
+        pointopoint=yes
+    fi
+
+    if [ -n "$ipv4_ethx" ]; then
+        if ip -4 route show default dev "$ipv4_ethx" | grep -qw onlink; then
+            onlink=yes
+        elif [ -n "$ipv4_gateway" ] && ip -4 route show "$ipv4_gateway" dev "$ipv4_ethx" | grep -q .; then
+            onlink=yes
+        fi
+    fi
+
+    echo "[DMIT-DETECT]"
+    echo "ipv4=${ipv4_addr:-}"
+    echo "gateway=${ipv4_gateway:-}"
+    echo "pointopoint=$pointopoint"
+    echo "onlink=$onlink"
+    echo "iface=${ipv4_ethx:-}"
+    echo
+}
+
 show_dd_password_tips() {
     warn false "
 This password is only used for SSH access to view logs during the installation.
@@ -2843,6 +2874,7 @@ collect_netconf() {
     echo "IPv6 Address: $ipv6_addr"
     echo "IPv6 Gateway: $ipv6_gateway"
     echo
+    show_dmit_detect
 }
 
 get_efi_dir_in_windows() {
@@ -4015,6 +4047,9 @@ This script is outdated, please download reinstall.sh again.
     fi
     if [ -n "$frpc_config" ]; then
         cat "$frpc_config" >$initrd_dir/configs/frpc.conf
+    fi
+    if is_vps_reinstall_debug; then
+        printf '%s' 1 >$initrd_dir/configs/vps-reinstall-debug
     fi
 
     # 收集 cloud-data 打包进 initrd
