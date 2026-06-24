@@ -3420,6 +3420,117 @@ mod_initrd_debian_kali() {
     # 允许设置 ipv4 onlink 网关
     sed -Ei 's,&&( onlink=),||\1,' etc/udhcpc/default.script
 
+    # hack 1.1
+    # DMIT 等 /32 + offlink gateway 机器上，netcfg 可能在 postinst 前就校验网关。
+    # 因此在 Debian Installer startup 阶段先写入 route，并让 netcfg 不接触真实 offlink gateway。
+    cat >early-netcfg-dmit.sh <<'EOF'
+#!/bin/sh
+
+mac_addr=$1
+ipv4_addr=$2
+ipv4_gateway=$3
+
+remove_netmask() {
+    echo "$1" | cut -d/ -f1
+}
+
+get_ipv4_prefix() {
+    echo "$ipv4_addr" | cut -s -d/ -f2
+}
+
+is_ipv4_offlink_32() {
+    [ -n "$ipv4_addr" ] &&
+        [ -n "$ipv4_gateway" ] &&
+        [ "$(get_ipv4_prefix)" = 32 ] &&
+        ! [ "$(remove_netmask "$ipv4_addr")" = "$ipv4_gateway" ]
+}
+
+get_ethx() {
+    ip -o link | grep -i "$mac_addr" | grep -v master | cut -d' ' -f2 | cut -d: -f1 | head -1 | grep .
+}
+
+is_vps_reinstall_debug() {
+    [ -s /configs/vps-reinstall-debug ]
+}
+
+get_debug_dir() {
+    echo /root/reinstall-debug/early-netcfg-dmit
+}
+
+ensure_debug_dir() {
+    mkdir -p "$(get_debug_dir)"
+}
+
+debug_log() {
+    is_vps_reinstall_debug || return
+    ensure_debug_dir
+    printf '%s\n' "$@" | tee -a /reinstall.log >>"$(get_debug_dir)/summary.log" 2>/dev/null || true
+}
+
+debug_save_cmd() {
+    file=$1
+    shift
+    is_vps_reinstall_debug || return
+    ensure_debug_dir
+    {
+        echo "+ $*"
+        "$@"
+    } >"$(get_debug_dir)/$file" 2>&1 || true
+}
+
+is_ipv4_offlink_32 || exit 0
+
+ethx=$(get_ethx) || exit 0
+
+debug_log \
+    "[EARLY-NETCFG-DMIT]" \
+    "iface=$ethx" \
+    "ipv4=$ipv4_addr" \
+    "gateway=$ipv4_gateway" \
+    "prefix=32" \
+    "action=prepare-offlink-route"
+
+debug_save_cmd before-ip-4-addr.txt ip -4 addr
+debug_save_cmd before-ip-4-route.txt ip -4 route
+
+if [ -f /usr/share/debconf/confmodule ]; then
+    # shellcheck source=/dev/null
+    . /usr/share/debconf/confmodule
+    db_set netcfg/get_ipaddress "$(remove_netmask "$ipv4_addr")" || true
+    db_set netcfg/get_netmask "255.255.255.255" || true
+    db_set netcfg/get_gateway "none" || true
+    db_set netcfg/no_default_route true || true
+    db_set netcfg/confirm_static true || true
+fi
+
+ip link set dev "$ethx" up || true
+ip -4 addr flush dev "$ethx" || true
+ip -4 addr add "$ipv4_addr" dev "$ethx" || true
+ip -4 route add "$ipv4_gateway" dev "$ethx" 2>/dev/null || true
+ip -4 route add default via "$ipv4_gateway" dev "$ethx" onlink 2>/dev/null ||
+    ip -4 route add default via "$ipv4_gateway" dev "$ethx" 2>/dev/null ||
+    true
+
+debug_save_cmd after-ip-4-addr.txt ip -4 addr
+debug_save_cmd after-ip-4-route.txt ip -4 route
+debug_log \
+    "[EARLY-NETCFG-DMIT]" \
+    "iface=$ethx" \
+    "ipv4=$ipv4_addr" \
+    "gateway=$ipv4_gateway" \
+    "prefix=32" \
+    "action=done"
+EOF
+    chmod a+x early-netcfg-dmit.sh
+
+    early_hook=lib/debian-installer-startup.d/S36early-netcfg-dmit
+    cat >$early_hook <<'EOF'
+#!/bin/sh
+: early_netcfg_dmit_cmd
+EOF
+    get_early_netcfg_dmit_cmd | insert_into_file $early_hook after ": early_netcfg_dmit_cmd"
+    chmod a+x $early_hook
+
     # hack 2
     # 强制使用 screen
     # shellcheck disable=SC1003,SC2016
@@ -3902,6 +4013,17 @@ get_ip_conf_cmd() {
         if is_found_ipv6_netconf; then
             echo "'$sh' '$ipv6_mac' '' '' '$ipv6_addr' '$ipv6_gateway' '$is_in_china' '$ipv6_extra_addrs'"
         fi
+    fi
+}
+
+get_early_netcfg_dmit_cmd() {
+    collect_netconf >&2
+
+    if is_found_ipv4_netconf &&
+        [ "${ipv4_addr#*/}" = 32 ] &&
+        [ -n "$ipv4_gateway" ] &&
+        ! [ "${ipv4_addr%/*}" = "$ipv4_gateway" ]; then
+        echo "'/early-netcfg-dmit.sh' '$ipv4_mac' '$ipv4_addr' '$ipv4_gateway'"
     fi
 }
 
