@@ -85,6 +85,22 @@ remove_netmask() {
     cut -d/ -f1
 }
 
+get_ipv4_prefix() {
+    echo "$ipv4_addr" | cut -s -d/ -f2
+}
+
+is_ipv4_pointopoint() {
+    [ -n "$ipv4_addr" ] && [ -n "$ipv4_gateway" ] && [ "$(get_ipv4_prefix)" = 32 ]
+}
+
+ensure_ipv4_gateway_route() {
+    if [ -n "$ipv4_gateway" ]; then
+        ip -4 route show "$ipv4_gateway" dev "$ethx" | grep -q . ||
+            ip -4 route add "$ipv4_gateway" dev "$ethx" 2>/dev/null ||
+            true
+    fi
+}
+
 get_first_ipv6_addr() {
     # debian 11 initrd 没有 xargs awk
     # debian 12 initrd 没有 xargs
@@ -143,11 +159,15 @@ add_missing_ipv4_config() {
             ip -4 addr add "$ipv4_addr" dev "$ethx"
         fi
 
+        if is_ipv4_pointopoint; then
+            ensure_ipv4_gateway_route
+        fi
+
         if ! is_have_ipv4_gateway; then
             # 如果 dhcp 无法设置onlink网关，那么在这里设置
             # debian 9 ipv6 不能识别 onlink，但 ipv4 能识别 onlink
             if true; then
-                ip -4 route add "$ipv4_gateway" dev "$ethx"
+                ensure_ipv4_gateway_route
                 ip -4 route add default via "$ipv4_gateway" dev "$ethx"
             else
                 ip -4 route add default via "$ipv4_gateway" dev "$ethx" onlink
@@ -321,6 +341,13 @@ sleep 1
 if [ -f /usr/share/debconf/confmodule ]; then
     # shellcheck source=/dev/null
     . /usr/share/debconf/confmodule
+
+    if is_ipv4_pointopoint; then
+        db_set netcfg/get_ipaddress "$(echo "$ipv4_addr" | remove_netmask)" || true
+        db_set netcfg/get_netmask "255.255.255.255" || true
+        db_set netcfg/get_gateway "none" || true
+        db_set netcfg/confirm_static true || true
+    fi
 
     db_progress STEP 1
 
