@@ -2681,6 +2681,23 @@ is_found_ipv6_netconf() {
     [ -n "$ipv6_mac" ] && [ -n "$ipv6_addr" ] && [ -n "$ipv6_gateway" ]
 }
 
+get_linux_ipv4_addrs() {
+    local ethx=$1
+    local gateway=$2
+    local line addr peer
+
+    ip -4 -o addr show scope global dev "$ethx" | grep -v temporary | while read -r line; do
+        addr=$(awk '{print $4}' <<<"$line")
+        if [[ "$addr" != */* ]]; then
+            peer=$(grep -oE ' peer [0-9.]+/[0-9]+' <<<"$line" | awk '{print $2}')
+            if [ "${peer%/*}" = "$gateway" ] && [ "${peer#*/}" = 32 ]; then
+                addr="$addr/32"
+            fi
+        fi
+        echo "$addr"
+    done
+}
+
 # TODO: 单网卡多IP
 collect_netconf() {
     if is_in_windows; then
@@ -2838,7 +2855,11 @@ collect_netconf() {
                 set_var ipv${v}_gateway "$gateway"
 
                 # 获取所有全局地址
-                all_addrs=$(ip -$v -o addr show scope global dev $ethx | grep -v temporary | awk '{print $4}')
+                if [ "$v" = 4 ]; then
+                    all_addrs=$(get_linux_ipv4_addrs "$ethx" "$gateway")
+                else
+                    all_addrs=$(ip -$v -o addr show scope global dev $ethx | grep -v temporary | awk '{print $4}')
+                fi
                 primary_addr=$(echo "$all_addrs" | head -1)
 
                 # IPv6: 用 ip route get 让内核返回正确的源 IP，指定 dev 避免 tun/warp 干扰
