@@ -169,7 +169,7 @@ show_dmit_detect() {
     local pointopoint=no
     local onlink=no
 
-    is_vps_reinstall_debug || return
+    is_vps_reinstall_debug || return 0
 
     if [ -n "$ipv4_addr" ] && [ "${ipv4_addr#*/}" = 32 ]; then
         pointopoint=yes

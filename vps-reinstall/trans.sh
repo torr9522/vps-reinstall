@@ -15,6 +15,8 @@ SCRIPT_VERSION=4BACD833-A585-23BA-6CBB-9AA4E08E0004
 TRUE=0
 FALSE=1
 EFI_UUID=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+WEBSOCKETD_PID_FILE=/run/vps-reinstall-websocketd.pid
+REINSTALL_LOG_FOLLOWER_PID_FILE=/run/vps-reinstall-log-followers.pids
 
 error() {
     color='\e[31m'
@@ -412,15 +414,44 @@ setup_nginx() {
     fi
 }
 
+stop_websocketd() {
+    local pid cmdline
+
+    if ! [ -s "$WEBSOCKETD_PID_FILE" ]; then
+        return 0
+    fi
+
+    pid=$(cat "$WEBSOCKETD_PID_FILE")
+    case "$pid" in
+    '' | *[!0-9]*)
+        rm -f "$WEBSOCKETD_PID_FILE"
+        return 0
+        ;;
+    esac
+
+    cmdline=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)
+    # PID 文件限定了目标；命令行签名避免 PID 重用时误杀其他 websocketd。
+    # 不校验端口，以便修改 web_port 后重试时仍能清理旧进程。
+    if [ "$(cat "/proc/$pid/comm" 2>/dev/null || true)" = websocketd ] &&
+        echo "$cmdline" | grep -Fq -- '/reinstall.log'; then
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+
+    rm -f "$WEBSOCKETD_PID_FILE"
+}
+
 setup_websocketd() {
     apk add websocketd
     wget $confhome/logviewer.html -O /tmp/index.html
     apk add coreutils
 
-    killall -q websocketd || true
+    stop_websocketd
     # websocketd 遇到 \n 才推送，因此要转换 \r 为 \n
     websocketd --port "$web_port" --loglevel=fatal --staticdir=/tmp \
-        stdbuf -oL -eL sh -c "tail -fn+0 /reinstall.log | tr '\r' '\n' | grep -Fiv -e password -e token" &
+        stdbuf -oL -eL sh -c "tail -fn+0 /reinstall.log | tr '\r' '\n' | grep -Fiv -e password -e token" \
+        </dev/null >/dev/null 2>&1 &
+    echo "$!" >"$WEBSOCKETD_PID_FILE"
 }
 
 get_approximate_ram_size() {
@@ -457,6 +488,45 @@ get_ttys() {
     prefix=$1
     # shellcheck disable=SC2154
     wget $confhome/ttys.sh -O- | sh -s $prefix
+}
+
+start_reinstall_logging() {
+    local tty
+
+    stop_reinstall_logging
+    : >/reinstall.log
+    : >"$REINSTALL_LOG_FOLLOWER_PID_FILE"
+
+    # 日志由主流程直接写入文件；后台进程只负责复制到控制台，不参与主流程管道。
+    for tty in $(get_ttys /dev/); do
+        tail -fn+1 /reinstall.log < /dev/null >"$tty" 2>/dev/null &
+        echo "$!" >>"$REINSTALL_LOG_FOLLOWER_PID_FILE"
+    done
+}
+
+stop_reinstall_logging() {
+    local pid cmdline
+
+    if ! [ -s "$REINSTALL_LOG_FOLLOWER_PID_FILE" ]; then
+        rm -f "$REINSTALL_LOG_FOLLOWER_PID_FILE"
+        return 0
+    fi
+
+    while read -r pid; do
+        case "$pid" in
+        '' | *[!0-9]*) continue ;;
+        esac
+
+        cmdline=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)
+        case "$cmdline" in
+        *tail*'/reinstall.log'*)
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            ;;
+        esac
+    done <"$REINSTALL_LOG_FOLLOWER_PID_FILE"
+
+    rm -f "$REINSTALL_LOG_FOLLOWER_PID_FILE"
 }
 
 find_xda() {
@@ -555,7 +625,7 @@ ensure_debug_root() {
 debug_save_cmd() {
     file=$1
     shift
-    is_vps_reinstall_debug || return
+    is_vps_reinstall_debug || return 0
     ensure_debug_root
     {
         echo "+ $*"
@@ -566,7 +636,7 @@ debug_save_cmd() {
 debug_save_file() {
     src=$1
     dst=$2
-    is_vps_reinstall_debug || return
+    is_vps_reinstall_debug || return 0
     [ -e "$src" ] || return
     ensure_debug_root
     cp -f "$src" "$(get_debug_root)/$dst" 2>/dev/null || cat "$src" >"$(get_debug_root)/$dst" 2>/dev/null || true
@@ -575,7 +645,7 @@ debug_save_file() {
 debug_save_text_from_file() {
     src=$1
     dst=$2
-    is_vps_reinstall_debug || return
+    is_vps_reinstall_debug || return 0
     [ -e "$src" ] || return
     ensure_debug_root
     cat "$src" >"$(get_debug_root)/$dst" 2>/dev/null || true
@@ -584,7 +654,7 @@ debug_save_text_from_file() {
 debug_append_file_to_log() {
     file=$1
     title=$2
-    is_vps_reinstall_debug || return
+    is_vps_reinstall_debug || return 0
     [ -f "$file" ] || return
     echo "$title"
     cat "$file"
@@ -613,7 +683,7 @@ collect_runtime_debug_snapshot() {
     local label=$1
     local pointopoint onlink
 
-    is_vps_reinstall_debug || return
+    is_vps_reinstall_debug || return 0
 
     ensure_debug_root
     debug_save_cmd "$label-ip-4-addr.txt" ip -4 addr
@@ -656,7 +726,7 @@ EOF
 collect_installer_debug_logs() {
     local label=$1
 
-    is_vps_reinstall_debug || return
+    is_vps_reinstall_debug || return 0
 
     debug_save_file /var/log/syslog "$label-var-log-syslog.log"
     debug_save_file /var/log/installer/syslog "$label-var-log-installer-syslog.log"
@@ -668,7 +738,7 @@ collect_installer_debug_logs() {
 }
 
 collect_final_network_config_debug() {
-    is_vps_reinstall_debug || return
+    is_vps_reinstall_debug || return 0
 
     debug_save_text_from_file /etc/network/interfaces current-etc-network-interfaces.txt
     if ls /etc/netplan/*.yaml >/dev/null 2>&1; then
@@ -8617,25 +8687,13 @@ if [ "$hold" = 1 ]; then
     fi
 fi
 
-# 正式运行重装
-# shellcheck disable=SC2046,SC2194
-case 1 in
-1)
-    # ChatGPT 说这种性能最高
-    exec > >(exec tee $(get_ttys /dev/) /reinstall.log) 2>&1
-    collect_runtime_debug_snapshot initrd-start
-    trans
-    ;;
-2)
-    exec > >(tee $(get_ttys /dev/) /reinstall.log) 2>&1
-    collect_runtime_debug_snapshot initrd-start
-    trans
-    ;;
-3)
-    collect_runtime_debug_snapshot initrd-start
-    trans 2>&1 | tee $(get_ttys /dev/) /reinstall.log
-    ;;
-esac
+# 正式运行重装。主流程直接写日志，保留 trans 的返回码和 set -eE 语义。
+start_reinstall_logging
+exec >>/reinstall.log 2>&1
+collect_runtime_debug_snapshot initrd-start
+trans
+stop_websocketd
+stop_reinstall_logging
 
 if [ "$hold" = 2 ]; then
     info "hold 2"
