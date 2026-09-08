@@ -1218,7 +1218,7 @@ setos() {
 
     setos_debian() {
         is_debian_elts() {
-            [ "$releasever" -le 10 ]
+            [ "$releasever" -le 11 ]
         }
 
         if [ "$releasever" -le 9 ] && [ "$basearch" = aarch64 ]; then
